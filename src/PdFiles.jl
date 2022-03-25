@@ -398,7 +398,7 @@ end
 
 function Base.flush(io::PdMmapFile) 
     cmsync(io.mm, io.length, MS_SYNC)
-    io
+    return io
 end
 
 function Base.filesize(io::PdMmapFile)

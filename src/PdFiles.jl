@@ -66,6 +66,12 @@ function PdOpenMode(pattern::AbstractString)
     error("Error, no matching string found!")
 end
 
+"""
+    @om_str "pattern"
+    om"pattern"
+
+Findet bei Parse-Zeit den Gewünschten OpenMode, wodurch bei Compilezeit dann schon das gewünschte Filehandle bekannt ist.
+"""
 macro om_str(pattern) PdOpenMode(pattern) end
 
 abstract type PdFile <: IO end
@@ -122,10 +128,22 @@ mutable struct PdReadFile <: PdFile
     end
 end
 
-function pdopen(file, openmode::AbstractString, args...)
+"""
+    pdopen(file::AbstractString, openmode::AbstractString, args...)
+
+Öffne eine Datei. 
+
+Welcher Filehandletyp genutzt wird, wird dynamisch bei Runtime bestimmt. Wenn es bereits bei Compilezeit bekannt ist, in welchem Modus diese Datei geöffnet wird, sollte [`@om_str`](@ref) genutzt werden.
+"""
+function pdopen(file::AbstractString, openmode::AbstractString, args...)
     return pdopen(file, PdOpenMode(openmode), args...)
 end
 
+"""
+    pdopen(file::AbstractString, om"r"[, bufsize::Integer])
+    
+Öffne eine Datei gebuffered im Read-Only Modus.
+"""
 function pdopen(file::AbstractString, ::Read, bufsize::Integer=PD_BUFSIZE)
     rf = pdrawopen(file, om"r")
     buf = Vector{UInt8}(undef, bufsize)
@@ -235,6 +253,13 @@ mutable struct PdWriteFile <: PdFile
     end
 end
 
+"""
+    pdopen(file::AbstractString, om"w"[, bufsize::Integer])
+    
+Öffne eine Datei gebuffered im Write-Only Modus.
+
+Je nachdem, ob die Datei bereits existiert, wird sie entweder erstellt, oder auf Länge 0 truncated.
+"""
 function pdopen(file::AbstractString, ::WriteTrunc, bufsize::Integer=PD_BUFSIZE)
     rf = pdrawopen(file, om"w")
     buf = Vector{UInt8}(undef, bufsize)
@@ -307,6 +332,11 @@ mutable struct PdMmapFile <: PdFile
     end
 end
 
+"""
+    pdopen(file::AbstractString, om"mr")
+    
+Öffne eine Datei via Mmap im Read-Only Modus. Wird wie ein Normales Filehandle genutzt, aber im Hintergrund wird Mmap genutzt.
+"""
 function pdopen(file::AbstractString, ::MmapRead)
     fs = filesize(file)
     raw = pdrawopen(file, om"r")
@@ -316,6 +346,11 @@ function pdopen(file::AbstractString, ::MmapRead)
     return PdMmapFile(mm, fs, 0)
 end
 
+"""
+    pdopen(file::AbstractString, om"mrw")
+    
+Öffne eine Datei via Mmap im Read-Write Modus. Wird wie ein Normales Filehandle genutzt, aber im Hintergrund wird Mmap genutzt.
+"""
 function pdopen(file::AbstractString, ::MmapReadWrite)
     fs = filesize(file)
     raw = pdrawopen(file, om"r+")
@@ -325,6 +360,13 @@ function pdopen(file::AbstractString, ::MmapReadWrite)
     return PdMmapFile(mm, fs, 0)
 end
 
+"""
+    pdopen(file::AbstractString, om"mrw", fs::Integer)
+    
+Öffne eine Datei via Mmap im Read-Write Modus. Wird wie ein Normales Filehandle genutzt, aber im Hintergrund wird Mmap genutzt.
+
+Via `fs` kann die Dateigröße gesetzt werden. Die Datei wird dann, bevor sie via Mmap geöffnet wird, per `ftruncate` auf die gewünschte Länge gesetzt.
+"""
 function pdopen(file::AbstractString, ::MmapReadWrite, fs::Integer)
     rawfd = copen(file, O_RDWR | O_CREAT, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH)
     cftruncate(rawfd, fs)

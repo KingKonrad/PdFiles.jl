@@ -112,9 +112,10 @@ abstract type BufferedFile <: IO end
 Base.read(s::BufferedFile, ::Type{UInt8}) = read!(s, Ref{UInt8}())[]
 Base.write(s::BufferedFile, v::UInt8) = write(s, Ref{UInt8}(v))
 
+# Overwrites two @noinline julia functions which cause allocations in a lot of situations
 function Base.unsafe_read(s::BufferedFile, p::Ref{T}, n::Integer) where {T}
     GC.@preserve p unsafe_read(s, Base.unsafe_convert(Ref{T}, p)::Ptr, n)
-end # Overwrites two @noinline julia functions which cause allocations in a lot of situations
+end
 function Base.unsafe_write(s::BufferedFile, p::Ref{T}, n::Integer) where {T}
     GC.@preserve p unsafe_write(s, Base.unsafe_convert(Ref{T}, p)::Ptr, n)
 end
@@ -340,7 +341,11 @@ Truncates the File when opening it.
 
 Returns a [`BufferedWriteFile`](@ref).
 """
-function bufferedopen(file::AbstractString, ::WriteTrunc, bufsize::Integer = DEFAULT_BUFSIZE)
+function bufferedopen(
+    file::AbstractString,
+    ::WriteTrunc,
+    bufsize::Integer = DEFAULT_BUFSIZE,
+)
     rf = rawopen(file, om"w")
     buf = Vector{UInt8}(undef, bufsize)
     return BufferedWriteFile(rf, buf, 0, true)

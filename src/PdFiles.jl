@@ -187,6 +187,8 @@ mutable struct PdReadFile <: PdFile
 end
 
 Base.isopen(p::PdReadFile) = p.isopen
+Base.isreadable(p::PdReadFile) = isopen(p)
+Base.iswritable(::PdReadFile) = false
 
 """
     pdopen(file::AbstractString, openmode::AbstractString, args...)
@@ -216,8 +218,8 @@ end
 
 function refresh(f::PdReadFile)
     GC.@preserve f begin
-        cmemmove(pointer(f.buf), pointer(f.buf) + f.pos, f.lastread - f.pos)
-        f.lastread = f.lastread - f.pos
+        cmemmove(pointer(f.buf), pointer(f.buf) + f.pos, bytesavailable(f))
+        f.lastread = bytesavailable(f)
         f.pos = 0
         f.lastread +=
             unsafe_read(f.rf, pointer(f.buf) + f.lastread, length(f.buf) - f.lastread)
@@ -270,8 +272,10 @@ function Base.close(f::PdReadFile)
     return nothing
 end
 
+Base.bytesavailable(f::PdReadFile) = f.lastread - f.pos
+
 function Base.unsafe_read(f::PdReadFile, p::Ptr{UInt8}, nb::UInt)::UInt
-    todo::UInt = (f.lastread - f.pos)
+    todo::UInt = bytesavailable(f)
     if todo == 0
         if nb > 0
             throw(EOFError())
@@ -324,6 +328,8 @@ mutable struct PdWriteFile <: PdFile
 end
 
 Base.isopen(p::PdWriteFile) = p.isopen
+Base.isreadable(::PdWriteFile) = false
+Base.iswritable(p::PdReadFile) = isopen(p)
 
 """
     pdopen(file::AbstractString, om"w"[, bufsize::Integer])

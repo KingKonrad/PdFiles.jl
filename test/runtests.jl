@@ -58,7 +58,7 @@ end
 end
 
 @testset "PdWriteFile" begin
-    for i in 1:1024
+    for i = 1:1024
         f = pdopen("testfile$i", om"w", i)
         @test f isa PdFiles.PdWriteFile
         @test position(f) == 0
@@ -73,7 +73,7 @@ end
 end
 
 @testset "PdReadFile" begin
-    for i in 1:1024
+    for i = 1:1024
         f = PdFiles.pdopen("testfile$i", om"r", i)
         @test f isa PdFiles.PdReadFile
         @test eof(f) == false

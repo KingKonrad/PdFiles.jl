@@ -13,8 +13,6 @@ module PdFiles
 
 export @om_str, pdopen
 
-using Mmap
-
 include("PdLibc.jl")
 using .PdLibc
 
@@ -311,6 +309,8 @@ mutable struct PdWriteFile <: PdFile
         return f
     end
 end
+
+Base.isopen(p::PdWriteFile) = p.isopen
 
 """
     pdopen(file::AbstractString, om"w"[, bufsize::Integer])

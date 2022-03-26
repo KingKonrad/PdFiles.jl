@@ -1,10 +1,10 @@
 """
     PdFiles
 
-Implementations of a better Filehandles. 
+Implementations of a better Filehandles.
 
-Includes a Read-Only Filehandle, 
-a better Write-Only Filehandle 
+Includes a Read-Only Filehandle,
+a better Write-Only Filehandle
 as well as Mmap-Filehandles allowing both Reading and writing (but not appending (yet)).
 
 Main Functions: [`pdopen`](@ref) and [`@om_str`](@ref)
@@ -67,7 +67,7 @@ struct MmapReadWrite <: PdOpenMode end
 """
     PdOpenMode(pattern::AbstractString)
 
-Convert `pattern` into its corresponding subtype of `PdOpenMode`. 
+Convert `pattern` into its corresponding subtype of `PdOpenMode`.
 
 Recommended Usage of this is with the [`@om_str`](@ref) macro at parse-time.
 """
@@ -89,7 +89,7 @@ function PdOpenMode(pattern::AbstractString)
     elseif pattern == "mr+"
         return MmapReadWrite()
     end
-    error("Error, no matching string found!")
+    return error("Error, no matching string found!")
 end
 
 """
@@ -99,7 +99,7 @@ end
 Convert `pattern` into its corresponding subtype of [`PdOpenMode`](@ref) at parse-time.
 """
 macro om_str(pattern)
-    PdOpenMode(pattern)
+    return PdOpenMode(pattern)
 end
 
 """
@@ -112,15 +112,19 @@ abstract type PdFile <: IO end
 Base.read(s::PdFile, ::Type{UInt8}) = read!(s, Ref{UInt8}())[]
 Base.write(s::PdFile, v::UInt8) = write(s, Ref{UInt8}(v))
 
-Base.unsafe_read(s::PdFile, p::Ref{T}, n::Integer) where {T} =
-    GC.@preserve p unsafe_read(s, Base.unsafe_convert(Ref{T}, p)::Ptr, n) # Overwrites two @noinline julia functions which cause allocations in a lot of situations
-Base.unsafe_write(s::PdFile, p::Ref{T}, n::Integer) where {T} =
+function Base.unsafe_read(s::PdFile, p::Ref{T}, n::Integer) where {T}
+    GC.@preserve p unsafe_read(s, Base.unsafe_convert(Ref{T}, p)::Ptr, n)
+end # Overwrites two @noinline julia functions which cause allocations in a lot of situations
+function Base.unsafe_write(s::PdFile, p::Ref{T}, n::Integer) where {T}
     GC.@preserve p unsafe_write(s, Base.unsafe_convert(Ref{T}, p)::Ptr, n)
+end
 
-Base.unsafe_read(s::PdFile, p::Ptr, n::Integer) =
-    unsafe_read(s, convert(Ptr{UInt8}, p), convert(UInt, n))
-Base.unsafe_write(s::PdFile, p::Ptr, n::Integer) =
-    unsafe_write(s, convert(Ptr{UInt8}, p), convert(UInt, n))
+function Base.unsafe_read(s::PdFile, p::Ptr, n::Integer)
+    return unsafe_read(s, convert(Ptr{UInt8}, p), convert(UInt, n))
+end
+function Base.unsafe_write(s::PdFile, p::Ptr, n::Integer)
+    return unsafe_write(s, convert(Ptr{UInt8}, p), convert(UInt, n))
+end
 
 """
     struct PdRawFile <: PdFile 
@@ -191,12 +195,13 @@ Open a File.
 
 Which type of Filehandle is returned depends on openmode.
 """
-pdopen(file::AbstractString, openmode::AbstractString, args...) =
-    pdopen(file, PdOpenMode(openmode), args...)
+function pdopen(file::AbstractString, openmode::AbstractString, args...)
+    return pdopen(file, PdOpenMode(openmode), args...)
+end
 
 """
     pdopen(file::AbstractString, om"r"[, bufsize::Integer])
-    
+
 Open a File in Read-Only Mode.
 
 Returns a [`PdReadFile`](@ref).
@@ -322,7 +327,7 @@ Base.isopen(p::PdWriteFile) = p.isopen
 
 """
     pdopen(file::AbstractString, om"w"[, bufsize::Integer])
-    
+
 Open a File in Write-Only Mode.
 
 Truncates the File when opening it.
@@ -403,7 +408,7 @@ end
 
 """
     pdopen(file::AbstractString, om"mr")
-    
+
 Open a file via Mmap in Read-Only Mode.
 """
 function pdopen(file::AbstractString, ::MmapRead)
@@ -417,7 +422,7 @@ end
 
 """
     pdopen(file::AbstractString, om"mr+")
-    
+
 Open a file via Mmap in Read-Write Mode.
 
 Appending is currently not possible and will throw an `EOFError`.
@@ -433,7 +438,7 @@ end
 
 """
     pdopen(file::AbstractString, om"mr+", fs::Integer)
-    
+
 Open a file via Mmap in Read-Write Mode.
 
 The file will be truncated to `fs` Byte before opening it via Mmap.
@@ -454,11 +459,11 @@ function Base.position(io::PdMmapFile)
 end
 
 function Base.seek(io::PdMmapFile, off)
-    io.pos = off
+    return io.pos = off
 end
 
 function Base.skip(io::PdMmapFile, off)
-    io.pos += off
+    return io.pos += off
 end
 
 Base.eof(io::PdMmapFile) = io.pos >= io.length

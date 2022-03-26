@@ -1,7 +1,7 @@
 name = "PdFiles"
 uuid = "58049f72-ad03-4b9e-92cf-b241b4467e52"
 authors = ["Paul Depping <paul.depping@gmail.com>"]
-version = "1.0.0"
+version = "1.0.1"
 
 [deps]
 Mmap = "a63ad114-7e13-5084-954f-fe012c677804"

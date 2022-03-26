@@ -7,17 +7,9 @@ If a C-Function returns an error-code, `Base.systemerror` is used to confirm the
 """
 module PdLibc
 
-export Coff_t,
-    O_CREAT,
-    O_TRUNC,
-    O_APPEND,
-    O_RDONLY,
-    O_WRONLY,
-    O_RDWR,
-    SEEK_SET,
-    SEEK_CUR,
-    SEEK_END,
-    cmemcpy,
+export Coff_t, Cmode_t
+
+export cmemcpy,
     cmemmove,
     copen,
     clseek,
@@ -29,7 +21,17 @@ export Coff_t,
     cmunmap,
     cftruncate,
     cmsync
-export S_IRWXU,
+
+export O_CREAT,
+    O_TRUNC,
+    O_APPEND,
+    O_RDONLY,
+    O_WRONLY,
+    O_RDWR,
+    SEEK_SET,
+    SEEK_CUR,
+    SEEK_END,
+    S_IRWXU,
     S_IRUSR,
     S_IWUSR,
     S_IXUSR,

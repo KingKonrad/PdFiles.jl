@@ -329,7 +329,7 @@ end
 
 Base.isopen(p::PdWriteFile) = p.isopen
 Base.isreadable(::PdWriteFile) = false
-Base.iswritable(p::PdReadFile) = isopen(p)
+Base.iswritable(p::PdWriteFile) = isopen(p)
 
 """
     pdopen(file::AbstractString, om"w"[, bufsize::Integer])

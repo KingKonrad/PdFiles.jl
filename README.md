@@ -1,5 +1,5 @@
-# PdFiles.jl
+# BufferedFiles.jl
 
-Functions to Implement overall better Filehandles.
+Implementation of Buffered Filehandles for higher Performance.
 
-## [Documentation](https://pauldepping.github.io/PdFiles_doku/)
+[Documentation](https://pauldepping.github.io/BufferedFiles/)

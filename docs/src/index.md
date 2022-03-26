@@ -1,16 +1,16 @@
-# PdFiles Documentation
+# BufferedFiles Documentation
 
 ```@contents
 ```
 
-## PdFiles
+## BufferedFiles
 
 ```@autodocs
-Modules = [PdFiles]
+Modules = [BufferedFiles]
 ```
 
-## PdLibc
+## Libc
 
 ```@autodocs
-Modules = [PdFiles.PdLibc]
+Modules = [BufferedFiles.Libc]
 ```

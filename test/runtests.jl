@@ -1,4 +1,4 @@
-using Test, PdFiles, PdFiles.PdLibc
+using Test, BufferedFiles, BufferedFiles.Libc
 
 const curdir = pwd()
 cd(@__DIR__)
@@ -7,7 +7,7 @@ if !isdir("testdir")
 end
 cd("testdir")
 
-@testset "PdLibc" begin
+@testset "Libc" begin
     @testset "cmemcpy" begin
         a = UInt8[0, 0, 0, 0]
         b = UInt8[1, 2, 3, 4]
@@ -26,7 +26,7 @@ cd("testdir")
         @test_throws SystemError copen("copen", O_RDONLY) # File Does Not Exist
         @test_throws SystemError cclose(-1)
         @test_throws SystemError cftruncate(-1, 100)
-        a = copen("copen", O_RDWR | O_CREAT, S_PDDEF)
+        a = copen("copen", O_RDWR | O_CREAT, S_DEFAULT)
         @test a != -1
         cftruncate(a, 100)
         cclose(a)
@@ -39,28 +39,28 @@ cd("testdir")
     end
 end
 
-@testset "PdRawFile" begin
+@testset "RawFile" begin
     @testset "Writing" begin
-        f = PdFiles.pdrawopen("testfile", om"w")
-        @test f isa PdFiles.PdRawFile
+        f = BufferedFiles.rawopen("testfile", om"w")
+        @test f isa BufferedFiles.RawFile
         @test write(f, UInt8[1, 2, 3, 4, 5, 6, 7, 8]) == 8
         @test write(f, 1) == 8
         @test write(f, 0x01) == 1
         close(f)
     end
     @testset "Reading" begin
-        f = PdFiles.pdrawopen("testfile", om"r")
-        @test f isa PdFiles.PdRawFile
+        f = BufferedFiles.rawopen("testfile", om"r")
+        @test f isa BufferedFiles.RawFile
         @test read!(f, Vector{UInt8}(undef, 8)) == UInt8[1, 2, 3, 4, 5, 6, 7, 8]
         @test read(f, Int) == 1
         @test read(f, UInt8) == 1
     end
 end
 
-@testset "PdWriteFile" begin
+@testset "BufferedWriteFile" begin
     for i = 1:1024
-        f = pdopen("testfile$i", om"w", i)
-        @test f isa PdFiles.PdWriteFile
+        f = bufferedopen("testfile$i", om"w", i)
+        @test f isa BufferedFiles.BufferedWriteFile
         @test position(f) == 0
         @test write(f, UInt8[1, 2, 3, 4, 5, 6, 7, 8]) == 8
         @test position(f) == 8
@@ -72,10 +72,10 @@ end
     end
 end
 
-@testset "PdReadFile" begin
+@testset "BufferedReadFile" begin
     for i = 1:1024
-        f = PdFiles.pdopen("testfile$i", om"r", i)
-        @test f isa PdFiles.PdReadFile
+        f = BufferedFiles.bufferedopen("testfile$i", om"r", i)
+        @test f isa BufferedFiles.BufferedReadFile
         @test eof(f) == false
         @test position(f) == 0
         @test read(f, 8) == UInt8[1, 2, 3, 4, 5, 6, 7, 8]
@@ -92,10 +92,10 @@ end
     end
 end
 
-@testset "PdMmapFile" begin
+@testset "MmapFile" begin
     @testset "Write" begin
-        f = pdopen("mmaptestfile", om"mr+", 16)
-        @test f isa PdFiles.PdMmapFile
+        f = bufferedopen("mmaptestfile", om"mr+", 16)
+        @test f isa BufferedFiles.MmapFile
         @test filesize(f) == 16
         @test eof(f) == false
         @test position(f) == 0
@@ -110,8 +110,8 @@ end
         close(f)
     end
     @testset "Read" begin
-        f = pdopen("mmaptestfile", om"mr")
-        @test f isa PdFiles.PdMmapFile
+        f = bufferedopen("mmaptestfile", om"mr")
+        @test f isa BufferedFiles.MmapFile
         @test filesize(f) == 16
         @test eof(f) == false
         @test position(f) == 0

@@ -1,11 +1,11 @@
 """
-    PdLibc
+    Libc
 
 Interface for all the C-Calls and Constants used.
 
 If a C-Function returns an error-code, `Base.systemerror` is used to confirm the return code, so the User does not need to do any error-checking themselfs.
 """
-module PdLibc
+module Libc
 
 export Coff_t, Cmode_t
 
@@ -43,7 +43,7 @@ export O_CREAT,
     S_IROTH,
     S_IWOTH,
     S_IXOTH,
-    S_PDDEF,
+    S_DEFAULT,
     PROT_NONE,
     PROT_READ,
     PROT_WRITE,
@@ -83,7 +83,7 @@ const S_IXOTH = Cmode_t(0b000000001)
 
 # My Default
 
-const S_PDDEF = Cmode_t(0b110100100)
+const S_DEFAULT = Cmode_t(0b110100100)
 
 # Constants for clseek
 

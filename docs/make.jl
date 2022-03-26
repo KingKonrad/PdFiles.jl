@@ -1,3 +1,3 @@
-using Documenter, PdFiles
+using Documenter, BufferedFiles
 
-makedocs(sitename = "PDs Dateifunktionen", format = Documenter.HTML(prettyurls = false))
+makedocs(sitename = "BufferedFiles Documentation")

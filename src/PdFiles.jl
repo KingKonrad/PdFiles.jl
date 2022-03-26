@@ -71,7 +71,7 @@ Convert `pattern` into its corresponding subtype of `PdOpenMode`.
 
 Recommended Usage of this is with the [`@om_str`](@ref) macro at parse-time.
 """
-function PdOpenMode(pattern::AbstractString) 
+function PdOpenMode(pattern::AbstractString)
     if pattern == "r"
         return Read()
     elseif pattern == "w"
@@ -98,7 +98,9 @@ end
 
 Convert `pattern` into its corresponding subtype of [`PdOpenMode`](@ref) at parse-time.
 """
-macro om_str(pattern) PdOpenMode(pattern) end
+macro om_str(pattern)
+    PdOpenMode(pattern)
+end
 
 """
     abstract type PdFile <: IO end
@@ -110,11 +112,15 @@ abstract type PdFile <: IO end
 Base.read(s::PdFile, ::Type{UInt8}) = read!(s, Ref{UInt8}())[]
 Base.write(s::PdFile, v::UInt8) = write(s, Ref{UInt8}(v))
 
-Base.unsafe_read(s::PdFile, p::Ref{T}, n::Integer) where {T} = GC.@preserve p unsafe_read(s, Base.unsafe_convert(Ref{T}, p)::Ptr, n) # Overwrites two @noinline julia functions which cause allocations in a lot of situations
-Base.unsafe_write(s::PdFile, p::Ref{T}, n::Integer) where {T} = GC.@preserve p unsafe_write(s, Base.unsafe_convert(Ref{T}, p)::Ptr, n)
+Base.unsafe_read(s::PdFile, p::Ref{T}, n::Integer) where {T} =
+    GC.@preserve p unsafe_read(s, Base.unsafe_convert(Ref{T}, p)::Ptr, n) # Overwrites two @noinline julia functions which cause allocations in a lot of situations
+Base.unsafe_write(s::PdFile, p::Ref{T}, n::Integer) where {T} =
+    GC.@preserve p unsafe_write(s, Base.unsafe_convert(Ref{T}, p)::Ptr, n)
 
-Base.unsafe_read(s::PdFile, p::Ptr, n::Integer) = unsafe_read(s, convert(Ptr{UInt8}, p), convert(UInt, n))
-Base.unsafe_write(s::PdFile, p::Ptr, n::Integer) = unsafe_write(s, convert(Ptr{UInt8}, p), convert(UInt, n))
+Base.unsafe_read(s::PdFile, p::Ptr, n::Integer) =
+    unsafe_read(s, convert(Ptr{UInt8}, p), convert(UInt, n))
+Base.unsafe_write(s::PdFile, p::Ptr, n::Integer) =
+    unsafe_write(s, convert(Ptr{UInt8}, p), convert(UInt, n))
 
 """
     struct PdRawFile <: PdFile 
@@ -125,7 +131,7 @@ Raw Filehandle with no Buffer, that calls the C-Functions for Reading, Writing e
 
 Used in [`PdReadFile`](@ref) and [`PdWriteFile`](@ref).
 """
-struct PdRawFile <: PdFile 
+struct PdRawFile <: PdFile
     fd::Cint
 end
 
@@ -185,7 +191,8 @@ Open a File.
 
 Which type of Filehandle is returned depends on openmode.
 """
-pdopen(file::AbstractString, openmode::AbstractString, args...) = pdopen(file, PdOpenMode(openmode), args...)
+pdopen(file::AbstractString, openmode::AbstractString, args...) =
+    pdopen(file, PdOpenMode(openmode), args...)
 
 """
     pdopen(file::AbstractString, om"r"[, bufsize::Integer])
@@ -194,7 +201,7 @@ Open a File in Read-Only Mode.
 
 Returns a [`PdReadFile`](@ref).
 """
-function pdopen(file::AbstractString, ::Read, bufsize::Integer=PD_BUFSIZE)
+function pdopen(file::AbstractString, ::Read, bufsize::Integer = PD_BUFSIZE)
     rf = pdrawopen(file, om"r")
     buf = Vector{UInt8}(undef, bufsize)
     f = PdReadFile(rf, buf, 0, 0, true)
@@ -203,11 +210,12 @@ function pdopen(file::AbstractString, ::Read, bufsize::Integer=PD_BUFSIZE)
 end
 
 function refresh(f::PdReadFile)
-    GC.@preserve f begin 
+    GC.@preserve f begin
         cmemmove(pointer(f.buf), pointer(f.buf) + f.pos, f.lastread - f.pos)
         f.lastread = f.lastread - f.pos
         f.pos = 0
-        f.lastread += unsafe_read(f.rf, pointer(f.buf) + f.lastread, length(f.buf) - f.lastread)
+        f.lastread +=
+            unsafe_read(f.rf, pointer(f.buf) + f.lastread, length(f.buf) - f.lastread)
     end
     return f
 end
@@ -298,7 +306,7 @@ Buffered Filehandle for more performant Reading.
 
 Opened via [`pdopen(filename, om"r")`](@ref pdopen(::AbstractString, ::Read)).
 """
-mutable struct PdWriteFile <: PdFile 
+mutable struct PdWriteFile <: PdFile
     rf::PdRawFile
     buf::Vector{UInt8}
     pos::Int
@@ -321,7 +329,7 @@ Truncates the File when opening it.
 
 Returns a [`PdWriteFile`](@ref).
 """
-function pdopen(file::AbstractString, ::WriteTrunc, bufsize::Integer=PD_BUFSIZE)
+function pdopen(file::AbstractString, ::WriteTrunc, bufsize::Integer = PD_BUFSIZE)
     rf = pdrawopen(file, om"w")
     buf = Vector{UInt8}(undef, bufsize)
     return PdWriteFile(rf, buf, 0, true)
@@ -329,7 +337,7 @@ end
 
 function Base.flush(f::PdWriteFile)
     GC.@preserve f begin
-        rt = unsafe_write(f.rf, pointer(f.buf), f.pos) 
+        rt = unsafe_write(f.rf, pointer(f.buf), f.pos)
     end
     @assert rt == f.pos
     f.pos = 0
@@ -503,7 +511,7 @@ function Base.unsafe_write(io::PdMmapFile, ptr::Ptr{UInt8}, n::UInt)
     end
 end
 
-function Base.flush(io::PdMmapFile) 
+function Base.flush(io::PdMmapFile)
     cmsync(io.mm, io.length, MS_SYNC)
     return io
 end

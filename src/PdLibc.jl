@@ -7,8 +7,48 @@ If a C-Function returns an error-code, `Base.systemerror` is used to confirm the
 """
 module PdLibc
 
-export Coff_t, O_CREAT, O_TRUNC, O_APPEND, O_RDONLY, O_WRONLY, O_RDWR, SEEK_SET, SEEK_CUR, SEEK_END, cmemcpy, cmemmove, copen, clseek, cread, cwrite, cclose, cmadvise, cmmap, cmunmap, cftruncate, cmsync
-export S_IRWXU, S_IRUSR, S_IWUSR, S_IXUSR, S_IRWXG, S_IRGRP, S_IWGRP, S_IXGRP, S_IRWXO, S_IROTH, S_IWOTH, S_IXOTH, S_PDDEF, PROT_NONE, PROT_READ, PROT_WRITE, PROT_EXEC, MADV_SEQUENTIAL, MAP_SHARED, MS_SYNC
+export Coff_t,
+    O_CREAT,
+    O_TRUNC,
+    O_APPEND,
+    O_RDONLY,
+    O_WRONLY,
+    O_RDWR,
+    SEEK_SET,
+    SEEK_CUR,
+    SEEK_END,
+    cmemcpy,
+    cmemmove,
+    copen,
+    clseek,
+    cread,
+    cwrite,
+    cclose,
+    cmadvise,
+    cmmap,
+    cmunmap,
+    cftruncate,
+    cmsync
+export S_IRWXU,
+    S_IRUSR,
+    S_IWUSR,
+    S_IXUSR,
+    S_IRWXG,
+    S_IRGRP,
+    S_IWGRP,
+    S_IXGRP,
+    S_IRWXO,
+    S_IROTH,
+    S_IWOTH,
+    S_IXOTH,
+    S_PDDEF,
+    PROT_NONE,
+    PROT_READ,
+    PROT_WRITE,
+    PROT_EXEC,
+    MADV_SEQUENTIAL,
+    MAP_SHARED,
+    MS_SYNC
 
 # C-Types
 
@@ -65,7 +105,7 @@ function copen(pathname, flags, mode)
     return fd
 end
 
-function copen(pathname, flags, mode::Nothing=nothing)
+function copen(pathname, flags, mode::Nothing = nothing)
     fd = @ccall open(pathname::Cstring, flags::Cint)::Cint
     Base.systemerror(:open, fd == -1)
     return fd
@@ -109,7 +149,7 @@ const MAP_SHARED = Cint(1)
 # Constants for cmadvise
 
 const MADV_SEQUENTIAL = Cint(2)
- 
+
 # Constants for cmsync
 
 const MS_SYNC = Cint(4)
@@ -119,7 +159,14 @@ const MS_SYNC = Cint(4)
 const MAP_FAILED = Ptr{Nothing}(-1)
 
 function cmmap(addr, length, prot, flags, fd, offset)
-    ptr = @ccall mmap(addr::Ptr{Cvoid}, length::Csize_t, prot::Cint, flags::Cint, fd::Cint, offset::Coff_t)::Ptr{Cvoid}
+    ptr = @ccall mmap(
+        addr::Ptr{Cvoid},
+        length::Csize_t,
+        prot::Cint,
+        flags::Cint,
+        fd::Cint,
+        offset::Coff_t,
+    )::Ptr{Cvoid}
     Base.systemerror(:mmap, ptr == MAP_FAILED)
     return ptr
 end

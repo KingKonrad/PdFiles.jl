@@ -1,6 +1,16 @@
-# PdFiles
+# PdFiles Documentation
 
-```@docs
-pdopen
-@om_str
+```@contents
+```
+
+## PdFiles 
+
+```@autodocs
+Modules = [PdFiles]
+```
+
+## PdLibc
+
+```@autodocs
+Modules = [PdFiles.PdLibc]
 ```

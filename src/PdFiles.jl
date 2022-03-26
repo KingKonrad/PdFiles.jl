@@ -1,3 +1,14 @@
+"""
+    PdFiles
+
+Implementations of a better Filehandles. 
+
+Includes a Read-Only Filehandle, 
+a better Write-Only Filehandle 
+as well as Mmap-Filehandles allowing both Reading and writing (but not appending (yet)).
+
+Main Functions: [`pdopen`](@ref) and [`@om_str`](@ref)
+"""
 module PdFiles
 
 export @om_str, pdopen
@@ -7,8 +18,18 @@ using Mmap
 include("PdLibc.jl")
 using .PdLibc
 
+"""
+    const PD_BUFSIZE = 16 * (1024) * (1024)
+
+Default size of the read/write-buffer of [`PdReadFile`](@ref) and [`PdWriteFile`](@ref).
+"""
 const PD_BUFSIZE = 16 * (1024) * (1024)
 
+"""
+    abstract type PdOpenMode end
+
+Types Implemented by [`@om_str`](@ref), used in [`pdopen`](@ref)
+"""
 abstract type PdOpenMode end
 
 struct Read <: PdOpenMode end
@@ -45,6 +66,13 @@ struct MmapRead <: PdOpenMode end
 
 struct MmapReadWrite <: PdOpenMode end
 
+"""
+    PdOpenMode(pattern::AbstractString)
+
+Convert `pattern` into its corresponding subtype of `PdOpenMode`. 
+
+Recommended Usage of this is with the [`@om_str`](@ref) macro at parse-time.
+"""
 function PdOpenMode(pattern::AbstractString) 
     if pattern == "r"
         return Read()
@@ -70,20 +98,35 @@ end
     @om_str "pattern"
     om"pattern"
 
-Findet bei Parse-Zeit den Gewünschten OpenMode, wodurch bei Compilezeit dann schon das gewünschte Filehandle bekannt ist.
+Convert `pattern` into its corresponding subtype of [`PdOpenMode`](@ref) at parse-time.
 """
 macro om_str(pattern) PdOpenMode(pattern) end
 
+"""
+    abstract type PdFile <: IO end
+
+Abstract Type for my Filehandles, to overwrite some of Julias functions from io.jl that cause allocations.
+"""
 abstract type PdFile <: IO end
 
 Base.read(s::PdFile, ::Type{UInt8}) = read!(s, Ref{UInt8}())[]
 Base.write(s::PdFile, v::UInt8) = write(s, Ref{UInt8}(v))
 
-Base.unsafe_read(s::PdFile, p::Ref{T}, n::Integer) where {T} = GC.@preserve p unsafe_read(s, Base.unsafe_convert(Ref{T}, p)::Ptr, n) # mark noinline to ensure ref is gc-rooted somewhere (by the caller)
-Base.unsafe_write(s::PdFile, p::Ref{T}, n::Integer) where {T} = GC.@preserve p unsafe_write(s, Base.unsafe_convert(Ref{T}, p)::Ptr, n) # mark noinline to ensure ref is gc-rooted somewhere (by the caller)
+Base.unsafe_read(s::PdFile, p::Ref{T}, n::Integer) where {T} = GC.@preserve p unsafe_read(s, Base.unsafe_convert(Ref{T}, p)::Ptr, n) # Overwrites two @noinline julia functions which cause allocations in a lot of situations
+Base.unsafe_write(s::PdFile, p::Ref{T}, n::Integer) where {T} = GC.@preserve p unsafe_write(s, Base.unsafe_convert(Ref{T}, p)::Ptr, n)
+
 Base.unsafe_read(s::PdFile, p::Ptr, n::Integer) = unsafe_read(s, convert(Ptr{UInt8}, p), convert(UInt, n))
 Base.unsafe_write(s::PdFile, p::Ptr, n::Integer) = unsafe_write(s, convert(Ptr{UInt8}, p), convert(UInt, n))
 
+"""
+    struct PdRawFile <: PdFile 
+        fd::Cint
+    end
+
+Raw Filehandle with no Buffer, that calls the C-Functions for Reading, Writing etc.
+
+Used in [`PdReadFile`](@ref) and [`PdWriteFile`](@ref).
+"""
 struct PdRawFile <: PdFile 
     fd::Cint
 end
@@ -114,6 +157,13 @@ Base.unsafe_read(s::PdRawFile, p::Ptr{UInt8}, n::UInt) = cread(s.fd, p, n)
 
 Base.close(s::PdRawFile) = cclose(s.fd)
 
+"""
+    PdReadFile
+
+Buffered Filehandle for more performant Reading.
+
+Opened via [`pdopen(filename, om"r")`](@ref pdopen(::AbstractString, ::Read)).
+"""
 mutable struct PdReadFile <: PdFile
     rf::PdRawFile
     buf::Vector{UInt8}
@@ -123,36 +173,38 @@ mutable struct PdReadFile <: PdFile
     function PdReadFile(rf, buf, pos, lastread, isopen)
         f = new(rf, buf, pos, lastread, isopen)
         finalizer(close, f)
-        pdflush(f)
+        refresh(f)
         return f
     end
 end
 
+Base.isopen(p::PdReadFile) = p.isopen
+
 """
     pdopen(file::AbstractString, openmode::AbstractString, args...)
 
-Öffne eine Datei. 
+Open a File.
 
-Welcher Filehandletyp genutzt wird, wird dynamisch bei Runtime bestimmt. Wenn es bereits bei Compilezeit bekannt ist, in welchem Modus diese Datei geöffnet wird, sollte [`@om_str`](@ref) genutzt werden.
+Which type of Filehandle is returned depends on openmode.
 """
-function pdopen(file::AbstractString, openmode::AbstractString, args...)
-    return pdopen(file, PdOpenMode(openmode), args...)
-end
+pdopen(file::AbstractString, openmode::AbstractString, args...) = pdopen(file, PdOpenMode(openmode), args...)
 
 """
     pdopen(file::AbstractString, om"r"[, bufsize::Integer])
     
-Öffne eine Datei gebuffered im Read-Only Modus.
+Open a File in Read-Only Mode.
+
+Returns a [`PdReadFile`](@ref).
 """
 function pdopen(file::AbstractString, ::Read, bufsize::Integer=PD_BUFSIZE)
     rf = pdrawopen(file, om"r")
     buf = Vector{UInt8}(undef, bufsize)
     f = PdReadFile(rf, buf, 0, 0, true)
-    pdflush(f)
+    refresh(f)
     return f
 end
 
-function pdflush(f::PdReadFile)
+function refresh(f::PdReadFile)
     GC.@preserve f begin 
         cmemmove(pointer(f.buf), pointer(f.buf) + f.pos, f.lastread - f.pos)
         f.lastread = f.lastread - f.pos
@@ -184,7 +236,7 @@ function Base.skip(f::PdReadFile, n::Integer)
         skip(f.rf, u)
         f.lastread = 0
         f.pos = 0
-        pdflush(f)
+        refresh(f)
         return f
     end
 end
@@ -194,12 +246,12 @@ function Base.seek(f::PdReadFile, n::Integer)
     seek(f.rf, u)
     f.lastread = 0
     f.pos = 0
-    pdflush(f)
+    refresh(f)
     return f
 end
 
 function Base.close(f::PdReadFile)
-    if f.isopen
+    if isopen(f)
         flush(f)
         f.isopen = false
         close(f.rf)
@@ -227,20 +279,27 @@ function Base.unsafe_read(f::PdReadFile, p::Ptr{UInt8}, nb::UInt)::UInt
             cmemcpy(p, pointer(f.buf) + f.pos, todo)
         end
         f.pos = f.lastread
-        pdflush(f)
+        refresh(f)
         return todo + unsafe_read(f, p + todo, nb - todo)
     elseif todo == nb
         GC.@preserve f begin
             cmemcpy(p, pointer(f.buf) + f.pos, todo)
         end
         f.pos = f.lastread
-        pdflush(f)
+        refresh(f)
         return todo
     else
         error("This should never happen!")
     end
 end
 
+"""
+    PdReadFile
+
+Buffered Filehandle for more performant Reading.
+
+Opened via [`pdopen(filename, om"r")`](@ref pdopen(::AbstractString, ::Read)).
+"""
 mutable struct PdWriteFile <: PdFile 
     rf::PdRawFile
     buf::Vector{UInt8}
@@ -256,9 +315,11 @@ end
 """
     pdopen(file::AbstractString, om"w"[, bufsize::Integer])
     
-Öffne eine Datei gebuffered im Write-Only Modus.
+Open a File in Write-Only Mode.
 
-Je nachdem, ob die Datei bereits existiert, wird sie entweder erstellt, oder auf Länge 0 truncated.
+Truncates the File when opening it.
+
+Returns a [`PdWriteFile`](@ref).
 """
 function pdopen(file::AbstractString, ::WriteTrunc, bufsize::Integer=PD_BUFSIZE)
     rf = pdrawopen(file, om"w")
@@ -292,7 +353,7 @@ function Base.seek(f::PdWriteFile, n::Integer)
 end
 
 function Base.close(f::PdWriteFile)
-    if f.isopen
+    if isopen(f)
         flush(f)
         f.isopen = false
         close(f.rf)
@@ -335,7 +396,7 @@ end
 """
     pdopen(file::AbstractString, om"mr")
     
-Öffne eine Datei via Mmap im Read-Only Modus. Wird wie ein Normales Filehandle genutzt, aber im Hintergrund wird Mmap genutzt.
+Open a file via Mmap in Read-Only Mode.
 """
 function pdopen(file::AbstractString, ::MmapRead)
     fs = filesize(file)
@@ -347,9 +408,11 @@ function pdopen(file::AbstractString, ::MmapRead)
 end
 
 """
-    pdopen(file::AbstractString, om"mrw")
+    pdopen(file::AbstractString, om"mr+")
     
-Öffne eine Datei via Mmap im Read-Write Modus. Wird wie ein Normales Filehandle genutzt, aber im Hintergrund wird Mmap genutzt.
+Open a file via Mmap in Read-Write Mode.
+
+Appending is currently not possible and will throw an `EOFError`.
 """
 function pdopen(file::AbstractString, ::MmapReadWrite)
     fs = filesize(file)
@@ -361,11 +424,13 @@ function pdopen(file::AbstractString, ::MmapReadWrite)
 end
 
 """
-    pdopen(file::AbstractString, om"mrw", fs::Integer)
+    pdopen(file::AbstractString, om"mr+", fs::Integer)
     
-Öffne eine Datei via Mmap im Read-Write Modus. Wird wie ein Normales Filehandle genutzt, aber im Hintergrund wird Mmap genutzt.
+Open a file via Mmap in Read-Write Mode.
 
-Via `fs` kann die Dateigröße gesetzt werden. Die Datei wird dann, bevor sie via Mmap geöffnet wird, per `ftruncate` auf die gewünschte Länge gesetzt.
+The file will be truncated to `fs` Byte before opening it via Mmap.
+
+Appending is currently not possible and will throw an `EOFError`.
 """
 function pdopen(file::AbstractString, ::MmapReadWrite, fs::Integer)
     rawfd = copen(file, O_RDWR | O_CREAT, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH)

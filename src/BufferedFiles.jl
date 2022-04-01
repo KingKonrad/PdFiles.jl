@@ -165,6 +165,8 @@ Base.unsafe_write(s::RawFile, p::Ptr{UInt8}, n::UInt) = cwrite(s.fd, p, n)
 Base.unsafe_read(s::RawFile, p::Ptr{UInt8}, n::UInt) = cread(s.fd, p, n)
 
 Base.close(s::RawFile) = cclose(s.fd)
+        
+Base.filesize(s::RawFile) = filesize(stat(s.fd))
 
 """
     BufferedReadFile
@@ -263,6 +265,8 @@ function Base.seek(f::BufferedReadFile, n::Integer)
     refresh(f)
     return f
 end
+                
+Base.filesize(f::BufferedReadFile) = filesize(f.rf)
 
 function Base.close(f::BufferedReadFile)
     if isopen(f)

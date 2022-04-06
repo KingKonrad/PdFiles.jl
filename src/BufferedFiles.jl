@@ -7,7 +7,9 @@ Includes a Read-Only Filehandle,
 a better Write-Only Filehandle
 as well as Mmap-Filehandles (currently only on Unix) allowing both Reading and writing (but not appending (yet)).
 
-Main Functions: [`bufferedopen`](@ref) and [`@om_str`](@ref)
+Currently only works on Unix-Machines, may be expanded in the future.
+
+Main Functions: [`open`](@ref) and [`@om_str`](@ref)
 """
 module BufferedFiles
 
@@ -26,7 +28,7 @@ const DEFAULT_BUFSIZE = 16 * (1024) * (1024)
 """
     abstract type BufferedOpenMode end
 
-Types Implemented by [`@om_str`](@ref), used in [`bufferedopen`](@ref)
+Types Implemented by [`@om_str`](@ref), used in [`open`](@ref)
 """
 abstract type BufferedOpenMode end
 
@@ -109,6 +111,8 @@ Abstract Type for my Filehandles, to overwrite some of Julias functions from io.
 """
 abstract type BufferedFile <: IO end
 
+const bufferedopen = Base.open
+
 Base.read(s::BufferedFile, ::Type{UInt8}) = read!(s, Ref{UInt8}())[]
 Base.write(s::BufferedFile, v::UInt8) = write(s, Ref{UInt8}(v))
 
@@ -171,7 +175,7 @@ Base.close(s::RawFile) = cclose(s.fd)
 
 Buffered Filehandle for more performant Reading.
 
-Opened via [`bufferedopen(filename, om"r")`](@ref bufferedopen(::AbstractString, ::Read)).
+Opened via [`open(filename, om"r")`](@ref Base.open(::AbstractString, ::Read)).
 """
 mutable struct BufferedReadFile <: BufferedFile
     rf::RawFile
@@ -192,24 +196,13 @@ Base.isreadable(p::BufferedReadFile) = isopen(p)
 Base.iswritable(::BufferedReadFile) = false
 
 """
-    bufferedopen(file::AbstractString, openmode::AbstractString, args...)
-
-Open a File.
-
-Which type of Filehandle is returned depends on openmode.
-"""
-function bufferedopen(file::AbstractString, openmode::AbstractString, args...)
-    return bufferedopen(file, BufferedOpenMode(openmode), args...)
-end
-
-"""
-    bufferedopen(file::AbstractString, om"r"[, bufsize::Integer])
+    open(file::AbstractString, om"r"[, bufsize::Integer])
 
 Open a File in Read-Only Mode.
 
 Returns a [`BufferedReadFile`](@ref).
 """
-function bufferedopen(file::AbstractString, ::Read, bufsize::Integer = DEFAULT_BUFSIZE)
+function Base.open(file::AbstractString, ::Read, bufsize::Integer = DEFAULT_BUFSIZE)
     rf = rawopen(file, om"r")
     buf = Vector{UInt8}(undef, bufsize)
     f = BufferedReadFile(rf, buf, 0, 0, true)
@@ -314,7 +307,7 @@ end
 
 Buffered Filehandle for more performant Reading.
 
-Opened via [`bufferedopen(filename, om"r")`](@ref bufferedopen(::AbstractString, ::Read)).
+Opened via [`open(filename, om"r")`](@ref open(::AbstractString, ::Read)).
 """
 mutable struct BufferedWriteFile <: BufferedFile
     rf::RawFile
@@ -333,7 +326,7 @@ Base.isreadable(::BufferedWriteFile) = false
 Base.iswritable(p::BufferedWriteFile) = isopen(p)
 
 """
-    bufferedopen(file::AbstractString, om"w"[, bufsize::Integer])
+    open(file::AbstractString, om"w"[, bufsize::Integer])
 
 Open a File in Write-Only Mode.
 
@@ -341,7 +334,7 @@ Truncates the File when opening it.
 
 Returns a [`BufferedWriteFile`](@ref).
 """
-function bufferedopen(
+function Base.open(
     file::AbstractString,
     ::WriteTrunc,
     bufsize::Integer = DEFAULT_BUFSIZE,
@@ -418,11 +411,11 @@ mutable struct MmapFile <: BufferedFile
 end
 
 """
-    bufferedopen(file::AbstractString, om"mr")
+    open(file::AbstractString, om"mr")
 
 Open a file via Mmap in Read-Only Mode.
 """
-function bufferedopen(file::AbstractString, ::MmapRead)
+function Base.open(file::AbstractString, ::MmapRead)
     fs = filesize(file)
     raw = rawopen(file, om"r")
     mm = cmmap(C_NULL, fs, PROT_READ, MAP_SHARED, raw.fd, 0)
@@ -432,13 +425,13 @@ function bufferedopen(file::AbstractString, ::MmapRead)
 end
 
 """
-    bufferedopen(file::AbstractString, om"mr+")
+    open(file::AbstractString, om"mr+")
 
 Open a file via Mmap in Read-Write Mode.
 
 Appending is currently not possible and will throw an `EOFError`.
 """
-function bufferedopen(file::AbstractString, ::MmapReadWrite)
+function Base.open(file::AbstractString, ::MmapReadWrite)
     fs = filesize(file)
     raw = rawopen(file, om"r+")
     mm = cmmap(C_NULL, fs, PROT_READ | PROT_WRITE, MAP_SHARED, raw.fd, 0)
@@ -448,7 +441,7 @@ function bufferedopen(file::AbstractString, ::MmapReadWrite)
 end
 
 """
-    bufferedopen(file::AbstractString, om"mr+", fs::Integer)
+    open(file::AbstractString, om"mr+", fs::Integer)
 
 Open a file via Mmap in Read-Write Mode.
 
@@ -456,7 +449,7 @@ The file will be truncated to `fs` Byte before opening it via Mmap.
 
 Appending is currently not possible and will throw an `EOFError`.
 """
-function bufferedopen(file::AbstractString, ::MmapReadWrite, fs::Integer)
+function Base.open(file::AbstractString, ::MmapReadWrite, fs::Integer)
     rawfd = copen(file, O_RDWR | O_CREAT, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH)
     cftruncate(rawfd, fs)
     mm = cmmap(C_NULL, fs, PROT_READ | PROT_WRITE, MAP_SHARED, rawfd, 0)

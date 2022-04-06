@@ -59,7 +59,7 @@ end
 
 @testset "BufferedWriteFile" begin
     for i = 1:1024
-        f = bufferedopen("testfile$i", om"w", i)
+        f = open("testfile$i", om"w", i)
         @test f isa BufferedFiles.BufferedWriteFile
         @test position(f) == 0
         @test write(f, UInt8[1, 2, 3, 4, 5, 6, 7, 8]) == 8
@@ -74,7 +74,7 @@ end
 
 @testset "BufferedReadFile" begin
     for i = 1:1024
-        f = BufferedFiles.bufferedopen("testfile$i", om"r", i)
+        f = BufferedFiles.open("testfile$i", om"r", i)
         @test f isa BufferedFiles.BufferedReadFile
         @test eof(f) == false
         @test position(f) == 0
@@ -94,7 +94,7 @@ end
 
 @testset "MmapFile" begin
     @testset "Write" begin
-        f = bufferedopen("mmaptestfile", om"mr+", 16)
+        f = open("mmaptestfile", om"mr+", 16)
         @test f isa BufferedFiles.MmapFile
         @test filesize(f) == 16
         @test eof(f) == false
@@ -110,7 +110,7 @@ end
         close(f)
     end
     @testset "Read" begin
-        f = bufferedopen("mmaptestfile", om"mr")
+        f = open("mmaptestfile", om"mr")
         @test f isa BufferedFiles.MmapFile
         @test filesize(f) == 16
         @test eof(f) == false

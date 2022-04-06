@@ -1,7 +1,7 @@
 name = "BufferedFiles"
 uuid = "58049f72-ad03-4b9e-92cf-b241b4467e52"
 authors = ["Paul Depping <paul.depping@gmail.com>"]
-version = "2.0.1"
+version = "1.1.0"
 
 [compat]
 julia = "1.5"

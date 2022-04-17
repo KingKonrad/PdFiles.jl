@@ -3,20 +3,26 @@
 
 Implementations of a better Filehandles.
 
-Includes a Read-Only Filehandle,
-a better Write-Only Filehandle
-as well as Mmap-Filehandles (currently only on Unix) allowing both Reading and writing (but not appending (yet)).
+Includes a Read-Only Filehandle and a better Write-Only Filehandle
 
-Currently only works on Unix-Machines, may be expanded in the future.
+Uses Julias Filesystem.File for Portability.
 
 Main Functions: [`open`](@ref) and [`@om_str`](@ref)
 """
 module BufferedFiles
+using Base.Filesystem
 
 export @om_str, bufferedopen
 
-include("Libc.jl")
-using .Libc
+function cmemcpy(dest, src, nbytes)
+    @ccall memcpy(dest::Ptr{Cvoid}, src::Ptr{Cvoid}, nbytes::Csize_t)::Ptr{Cvoid}
+    nothing
+end
+
+function cmemmove(dest, src, nbytes)
+    @ccall memmove(dest::Ptr{Cvoid}, src::Ptr{Cvoid}, nbytes::Csize_t)::Ptr{Cvoid}
+    nothing
+end
 
 """
     const DEFAULT_BUFSIZE = 16 * (1024) * (1024)
@@ -34,33 +40,15 @@ abstract type BufferedOpenMode end
 
 struct Read <: BufferedOpenMode end
 
-openflags(::Read) = O_RDONLY
-openmode(::Read) = nothing
-
 struct WriteTrunc <: BufferedOpenMode end
-
-openflags(::WriteTrunc) = O_WRONLY | O_TRUNC | O_CREAT
-openmode(::WriteTrunc) = S_IWUSR | S_IRUSR | S_IRGRP | S_IROTH
 
 struct Append <: BufferedOpenMode end
 
-openflags(::Append) = O_WRONLY | O_APPEND
-openmode(::Append) = nothing
-
 struct ReadWrite <: BufferedOpenMode end
-
-openflags(::ReadWrite) = O_RDWR | O_APPEND
-openmode(::ReadWrite) = nothing
 
 struct ReadWriteTrunc <: BufferedOpenMode end
 
-openflags(::ReadWriteTrunc) = O_RDWR | O_CREAT | O_TRUNC
-openmode(::ReadWriteTrunc) = S_IWUSR | S_IRUSR | S_IRGRP | S_IROTH
-
 struct ReadAppend <: BufferedOpenMode end
-
-openflags(::ReadAppend) = O_RDWR | O_APPEND
-openmode(::ReadAppend) = nothing
 
 struct MmapRead <: BufferedOpenMode end
 
@@ -113,6 +101,7 @@ abstract type BufferedFile <: IO end
 
 const bufferedopen = Base.open
 
+# TODO: Refactor
 Base.read(s::BufferedFile, ::Type{UInt8}) = read!(s, Ref{UInt8}())[]
 Base.write(s::BufferedFile, v::UInt8) = write(s, Ref{UInt8}(v))
 
@@ -132,45 +121,6 @@ function Base.unsafe_write(s::BufferedFile, p::Ptr, n::Integer)
 end
 
 """
-    struct RawFile <: BufferedFile 
-        fd::Cint
-    end
-
-Raw Filehandle with no Buffer, that calls the C-Functions for Reading, Writing etc.
-
-Used in [`BufferedReadFile`](@ref) and [`BufferedWriteFile`](@ref).
-"""
-struct RawFile <: BufferedFile
-    fd::Cint
-end
-
-function rawopen(file::AbstractString, om::BufferedOpenMode)
-    flags = openflags(om)
-    mode = openmode(om)
-    fdes = copen(file, flags, mode)
-    return RawFile(fdes)
-end
-
-function Base.seek(s::RawFile, off)
-    clseek(s.fd, off, SEEK_SET)
-    return s
-end
-
-function Base.skip(s::RawFile, off)
-    clseek(s.fd, off, SEEK_CUR)
-    return s
-end
-
-function Base.position(s::RawFile)
-    return clseek(s.fd, 0, SEEK_CUR)
-end
-
-Base.unsafe_write(s::RawFile, p::Ptr{UInt8}, n::UInt) = cwrite(s.fd, p, n)
-Base.unsafe_read(s::RawFile, p::Ptr{UInt8}, n::UInt) = cread(s.fd, p, n)
-
-Base.close(s::RawFile) = cclose(s.fd)
-
-"""
     BufferedReadFile
 
 Buffered Filehandle for more performant Reading.
@@ -178,20 +128,21 @@ Buffered Filehandle for more performant Reading.
 Opened via [`open(filename, om"r")`](@ref Base.open(::AbstractString, ::Read)).
 """
 mutable struct BufferedReadFile <: BufferedFile
-    rf::RawFile
+    rf::File
     buf::Vector{UInt8}
-    pos::Int
-    lastread::Int
-    isopen::Bool
-    function BufferedReadFile(rf, buf, pos, lastread, isopen)
-        f = new(rf, buf, pos, lastread, isopen)
+    filepos::Int
+    fileend::Int
+    bufpos::Int
+    buflastread::Int
+    function BufferedReadFile(rf, buf)
+        f = new(rf, buf, position(rf), filesize(rf), 0, 0)
         finalizer(close, f)
         refresh(f)
         return f
     end
 end
 
-Base.isopen(p::BufferedReadFile) = p.isopen
+Base.isopen(p::BufferedReadFile) = isopen(p.rf)
 Base.isreadable(p::BufferedReadFile) = isopen(p)
 Base.iswritable(::BufferedReadFile) = false
 
@@ -203,100 +154,113 @@ Open a File in Read-Only Mode.
 Returns a [`BufferedReadFile`](@ref).
 """
 function Base.open(file::AbstractString, ::Read, bufsize::Integer = DEFAULT_BUFSIZE)
-    rf = rawopen(file, om"r")
+    rf = Filesystem.open(file, JL_O_RDONLY)
     buf = Vector{UInt8}(undef, bufsize)
-    f = BufferedReadFile(rf, buf, 0, 0, true)
-    refresh(f)
+    f = BufferedReadFile(rf, buf)
     return f
 end
 
 function refresh(f::BufferedReadFile)
     GC.@preserve f begin
-        cmemmove(pointer(f.buf), pointer(f.buf) + f.pos, bytesavailable(f))
-        f.lastread = bytesavailable(f)
-        f.pos = 0
-        f.lastread +=
-            unsafe_read(f.rf, pointer(f.buf) + f.lastread, length(f.buf) - f.lastread)
+        cmemmove(pointer(f.buf), pointer(f.buf) + f.bufpos, bytesavailable(f))
+        f.buflastread = bytesavailable(f)
+        f.bufpos = 0
+        to_read::UInt = min(length(f.buf) - f.buflastread, max(0, f.fileend - f.filepos))
+        f.filepos += to_read
+        unsafe_read(f.rf, pointer(f.buf) + f.buflastread, to_read)
+        f.buflastread += to_read
     end
     return f
 end
 
 function Base.position(f::BufferedReadFile)::Int
-    return position(f.rf) - (f.lastread - f.pos)
+    return f.filepos - (f.buflastread - f.bufpos)
 end
 
 function Base.eof(f::BufferedReadFile)::Bool
-    return (f.lastread - f.pos) == 0
+    return (f.buflastread - f.bufpos) == 0
 end
 
 function Base.skip(f::BufferedReadFile, n::Integer)
-    u::Int = n
-    if u < 0 && f.pos + u > 0
-        f.pos += u
-        return f
-    elseif u > 0 && (f.lastread - f.pos) > u
-        f.pos += u
-        return f
-    elseif u == 0
-        return f
+    todo::UInt = bytesavailable(f)
+    if n >= 0
+        nb::UInt = n
+        if todo == 0
+            if nb > 0
+                throw(EOFError())
+            end
+        elseif todo > nb
+            f.bufpos += nb
+        elseif todo <= nb
+            f.bufpos = f.buflastread
+            refresh(f)
+            skip(f, (nb - todo)::UInt)
+        end
     else
-        skip(f.rf, u)
-        f.lastread = 0
-        f.pos = 0
-        refresh(f)
-        return f
+        u::UInt = abs(n)
+        if f.bufpos < u
+            dif = u - f.bufpos
+            skip(f.rf, -Int(f.buflastread + dif))
+            f.filepos -= (f.buflastread + dif)
+            f.bufpos = 0
+            f.buflastread = 0
+            refresh(f)
+        else
+            f.bufpos -= u
+        end
     end
+    return f
 end
 
 function Base.seek(f::BufferedReadFile, n::Integer)
-    u::Int = n
-    seek(f.rf, u)
-    f.lastread = 0
-    f.pos = 0
+    seek(f.rf, n)
+    f.filepos = n
+    f.buflastread = 0
+    f.bufpos = 0
     refresh(f)
     return f
 end
 
 function Base.close(f::BufferedReadFile)
     if isopen(f)
-        flush(f)
-        f.isopen = false
         close(f.rf)
+        resize!(f.buf, 0)
+        sizehint!(f.buf, 0)
     end
     return nothing
 end
 
-Base.bytesavailable(f::BufferedReadFile) = f.lastread - f.pos
+Base.bytesavailable(f::BufferedReadFile) = f.buflastread - f.bufpos
 
-function Base.unsafe_read(f::BufferedReadFile, p::Ptr{UInt8}, nb::UInt)::UInt
+function Base.unsafe_read(f::BufferedReadFile, p::Ptr{UInt8}, nb::UInt)
     todo::UInt = bytesavailable(f)
     if todo == 0
         if nb > 0
             throw(EOFError())
         else
-            return 0
+            return nothing
         end
     end
     if todo > nb
         GC.@preserve f begin
-            cmemcpy(p, pointer(f.buf) + f.pos, nb)
+            cmemcpy(p, pointer(f.buf) + f.bufpos, nb)
         end
-        f.pos += nb
-        return nb
+        f.bufpos += nb
+        return nothing
     elseif todo < nb
         GC.@preserve f begin
-            cmemcpy(p, pointer(f.buf) + f.pos, todo)
+            cmemcpy(p, pointer(f.buf) + f.bufpos, todo)
         end
-        f.pos = f.lastread
+        f.bufpos = f.buflastread
         refresh(f)
-        return todo + unsafe_read(f, p + todo, nb - todo)
+        return unsafe_read(f, p + todo, nb - todo)
     elseif todo == nb
         GC.@preserve f begin
-            cmemcpy(p, pointer(f.buf) + f.pos, todo)
+            cmemcpy(p, pointer(f.buf) + f.bufpos, todo)
         end
-        f.pos = f.lastread
+        f.bufpos = f.buflastread
         refresh(f)
-        return todo
+        return nothing
     else
         error("This should never happen!")
     end
@@ -310,18 +274,18 @@ Buffered Filehandle for more performant Reading.
 Opened via [`open(filename, om"r")`](@ref open(::AbstractString, ::Read)).
 """
 mutable struct BufferedWriteFile <: BufferedFile
-    rf::RawFile
+    rf::File
     buf::Vector{UInt8}
-    pos::Int
-    isopen::Bool
-    function BufferedWriteFile(rf, buf, pos, isopen)
-        f = new(rf, buf, pos, isopen)
+    filepos::Int
+    bufpos::Int
+    function BufferedWriteFile(rf, buf)
+        f = new(rf, buf, position(rf), 0)
         finalizer(close, f)
         return f
     end
 end
 
-Base.isopen(p::BufferedWriteFile) = p.isopen
+Base.isopen(p::BufferedWriteFile) = isopen(p.rf)
 Base.isreadable(::BufferedWriteFile) = false
 Base.iswritable(p::BufferedWriteFile) = isopen(p)
 
@@ -339,205 +303,67 @@ function Base.open(
     ::WriteTrunc,
     bufsize::Integer = DEFAULT_BUFSIZE,
 )
-    rf = rawopen(file, om"w")
     buf = Vector{UInt8}(undef, bufsize)
-    return BufferedWriteFile(rf, buf, 0, true)
+    rf = Filesystem.open(file, JL_O_CREAT | JL_O_TRUNC | JL_O_WRONLY, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH)
+    return BufferedWriteFile(rf, buf)
 end
 
 function Base.flush(f::BufferedWriteFile)
     GC.@preserve f begin
-        rt = unsafe_write(f.rf, pointer(f.buf), f.pos)
+        unsafe_write(f.rf, pointer(f.buf), f.bufpos)
     end
-    @assert rt == f.pos
-    f.pos = 0
+    f.filepos += f.bufpos
+    f.bufpos = 0
     return f
 end
 
 function Base.position(f::BufferedWriteFile)::Int
-    return position(f.rf) + f.pos
+    return f.filepos + f.bufpos
 end
 
 function Base.skip(f::BufferedWriteFile, n::Integer)
     flush(f)
     skip(f.rf, n)
+    f.filepos += n
     return f
 end
 
 function Base.seek(f::BufferedWriteFile, n::Integer)
     flush(f)
     seek(f.rf, n)
+    f.filepos = n
     return f
 end
 
 function Base.close(f::BufferedWriteFile)
     if isopen(f)
         flush(f)
-        f.isopen = false
         close(f.rf)
+        resize!(f.buf, 0)
+        sizehint!(f.buf, 0)
     end
     return nothing
 end
 
 function Base.unsafe_write(f::BufferedWriteFile, p::Ptr{UInt8}, nb::UInt)::UInt
-    freespace::UInt = (length(f.buf) - f.pos)
+    freespace::UInt = (length(f.buf) - f.bufpos)
     @assert freespace > 0
     if freespace > nb
         GC.@preserve f begin
-            cmemcpy(pointer(f.buf) + f.pos, p, nb)
+            cmemcpy(pointer(f.buf) + f.bufpos, p, nb)
         end
-        f.pos += nb
+        f.bufpos += nb
         return nb
     elseif freespace <= nb
         GC.@preserve f begin
-            cmemcpy(pointer(f.buf) + f.pos, p, freespace)
+            cmemcpy(pointer(f.buf) + f.bufpos, p, freespace)
         end
-        f.pos += freespace
+        f.bufpos += freespace
         flush(f)
         return freespace + unsafe_write(f, p + freespace, nb - freespace)
     else
         error("This should never happen!")
     end
-end
-
-mutable struct MmapFile <: BufferedFile
-    mm::Ptr{UInt8}
-    length::Csize_t
-    pos::UInt
-    function MmapFile(mm, length, pos)
-        f = new(mm, length, pos)
-        finalizer(close, f)
-        return f
-    end
-end
-
-"""
-    open(file::AbstractString, om"mr")
-
-Open a file via Mmap in Read-Only Mode.
-"""
-function Base.open(file::AbstractString, ::MmapRead)
-    fs = filesize(file)
-    raw = rawopen(file, om"r")
-    mm = cmmap(C_NULL, fs, PROT_READ, MAP_SHARED, raw.fd, 0)
-    cmadvise(mm, fs, MADV_SEQUENTIAL)
-    close(raw)
-    return MmapFile(mm, fs, 0)
-end
-
-"""
-    open(file::AbstractString, om"mr+")
-
-Open a file via Mmap in Read-Write Mode.
-
-Appending is currently not possible and will throw an `EOFError`.
-"""
-function Base.open(file::AbstractString, ::MmapReadWrite)
-    fs = filesize(file)
-    raw = rawopen(file, om"r+")
-    mm = cmmap(C_NULL, fs, PROT_READ | PROT_WRITE, MAP_SHARED, raw.fd, 0)
-    cmadvise(mm, fs, MADV_SEQUENTIAL)
-    close(raw)
-    return MmapFile(mm, fs, 0)
-end
-
-"""
-    open(file::AbstractString, om"mr+", fs::Integer)
-
-Open a file via Mmap in Read-Write Mode.
-
-The file will be truncated to `fs` Byte before opening it via Mmap.
-
-Appending is currently not possible and will throw an `EOFError`.
-"""
-function Base.open(file::AbstractString, ::MmapReadWrite, fs::Integer)
-    rawfd = copen(file, O_RDWR | O_CREAT, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH)
-    cftruncate(rawfd, fs)
-    mm = cmmap(C_NULL, fs, PROT_READ | PROT_WRITE, MAP_SHARED, rawfd, 0)
-    cmadvise(mm, fs, MADV_SEQUENTIAL)
-    cclose(rawfd)
-    return MmapFile(mm, fs, 0)
-end
-
-function Base.position(io::MmapFile)
-    return io.pos
-end
-
-function Base.seek(io::MmapFile, off)
-    return io.pos = off
-end
-
-function Base.skip(io::MmapFile, off)
-    return io.pos += off
-end
-
-Base.eof(io::MmapFile) = io.pos >= io.length
-
-function Base.read(io::MmapFile, ::Type{UInt8})
-    if eof(io)
-        throw(EOFError())
-    end
-    GC.@preserve io begin
-        val = unsafe_load(io.mm + io.pos)
-    end
-    io.pos += 1
-    return val
-end
-
-function Base.write(io::MmapFile, u::UInt8)
-    if eof(io)
-        throw(EOFError())
-    end
-    GC.@preserve io begin
-        unsafe_store!(io.mm + io.pos, u)
-    end
-    io.pos += 1
-    return sizeof(UInt8)
-end
-
-function Base.unsafe_read(io::MmapFile, ptr::Ptr{UInt8}, n::UInt)
-    left::UInt = io.length - io.pos
-    if left < n
-        cmemcpy(ptr, io.mm + io.pos, left)
-        io.pos += left
-        throw(EOFError())
-    else
-        cmemcpy(ptr, io.mm + io.pos, n)
-        io.pos += n
-        return n
-    end
-end
-
-function Base.unsafe_write(io::MmapFile, ptr::Ptr{UInt8}, n::UInt)
-    left::UInt = io.length - io.pos
-    if left < n
-        cmemcpy(io.mm + io.pos, ptr, left)
-        io.pos += left
-        throw(EOFError())
-    else
-        cmemcpy(io.mm + io.pos, ptr, n)
-        io.pos += n
-        return n
-    end
-end
-
-function Base.flush(io::MmapFile)
-    cmsync(io.mm, io.length, MS_SYNC)
-    return io
-end
-
-function Base.filesize(io::MmapFile)
-    return io.length
-end
-
-Base.isopen(io::MmapFile) = io.mm != C_NULL
-
-function Base.close(io::MmapFile)
-    if isopen(io)
-        flush(io)
-        cmunmap(io.mm, io.length)
-        io.mm = C_NULL
-    end
-    return
 end
 
 end # module

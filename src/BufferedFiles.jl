@@ -213,11 +213,13 @@ function Base.skip(f::BufferedReadFile, n::Integer)
 end
 
 function Base.seek(f::BufferedReadFile, n::Integer)
-    seek(f.rf, n)
-    f.filepos = n
-    f.buflastread = 0
-    f.bufpos = 0
-    refresh(f)
+    if position(f) != n
+        seek(f.rf, n)
+        f.filepos = n
+        f.buflastread = 0
+        f.bufpos = 0
+        refresh(f)
+    end
     return f
 end
 
@@ -329,8 +331,10 @@ function Base.skip(f::BufferedWriteFile, n::Integer)
 end
 
 function Base.seek(f::BufferedWriteFile, n::Integer)
-    flush(f)
-    seek(f.rf, n)
+    if position(f) != n
+        flush(f)
+        seek(f.rf, n)
+    end
     f.filepos = n
     return f
 end

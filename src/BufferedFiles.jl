@@ -101,10 +101,6 @@ abstract type BufferedFile <: IO end
 
 const bufferedopen = Base.open
 
-# TODO: Refactor
-Base.read(s::BufferedFile, ::Type{UInt8}) = read!(s, Ref{UInt8}())[]
-Base.write(s::BufferedFile, v::UInt8) = write(s, Ref{UInt8}(v))
-
 # Overwrites two @noinline julia functions which cause allocations in a lot of situations
 function Base.unsafe_read(s::BufferedFile, p::Ref{T}, n::Integer) where {T}
     GC.@preserve p unsafe_read(s, Base.unsafe_convert(Ref{T}, p)::Ptr, n)
@@ -153,7 +149,7 @@ Open a File in Read-Only Mode.
 
 Returns a [`BufferedReadFile`](@ref).
 """
-function Base.open(file::AbstractString, ::Read, bufsize::Integer = DEFAULT_BUFSIZE)
+function Base.open(file::AbstractString, ::Read, bufsize::Integer=DEFAULT_BUFSIZE)
     rf = Filesystem.open(file, JL_O_RDONLY)
     buf = Vector{UInt8}(undef, bufsize)
     f = BufferedReadFile(rf, buf)
@@ -234,6 +230,23 @@ end
 
 Base.bytesavailable(f::BufferedReadFile) = f.buflastread - f.bufpos
 
+function Base.read(s::BufferedReadFile, ::Type{UInt8})
+    r = bytesavailable(s)
+    if r >= 2
+        s.bufpos += 1
+        return @inbounds s.buf[s.bufpos]
+    elseif r == 1
+        s.bufpos += 1
+        cnt = @inbounds s.buf[s.bufpos]
+        refresh(s)
+        return cnt
+    elseif r == 0
+        throw(EOFError())
+    else
+        error("this should never happen!")
+    end
+end
+
 function Base.unsafe_read(f::BufferedReadFile, p::Ptr{UInt8}, nb::UInt)
     todo::UInt = bytesavailable(f)
     if todo == 0
@@ -268,10 +281,26 @@ function Base.unsafe_read(f::BufferedReadFile, p::Ptr{UInt8}, nb::UInt)
     end
 end
 
-"""
-    BufferedReadFile
+function Base.resize!(b::BufferedReadFile, ns::Integer)
+    s = Int(ns)
+    if b.buflastread < s
+        resize!(b.buf, s)
+    elseif b.buflastread >= s
+        p = position(b)
+        seek(b.rf, p)
+        b.filepos = p
+        b.buflastread = 0
+        b.bufpos = 0
+        resize!(b.buf, s)
+        refresh(b)
+    end
+    return b
+end
 
-Buffered Filehandle for more performant Reading.
+"""
+    BufferedWriteFile
+
+Buffered Filehandle for more performant sequential Writing.
 
 Opened via [`open(filename, om"r")`](@ref open(::AbstractString, ::Read)).
 """
@@ -287,6 +316,15 @@ mutable struct BufferedWriteFile <: BufferedFile
     end
 end
 
+function Base.resize!(b::BufferedWriteFile, ns::Integer)
+    s = Int(ns)
+    if s <= b.bufpos
+        flush(b)
+    end
+    resize!(b.buf, s)
+    return b
+end
+
 Base.isopen(p::BufferedWriteFile) = isopen(p.rf)
 Base.isreadable(::BufferedWriteFile) = false
 Base.iswritable(p::BufferedWriteFile) = isopen(p)
@@ -300,13 +338,12 @@ Truncates the File when opening it.
 
 Returns a [`BufferedWriteFile`](@ref).
 """
-function Base.open(
-    file::AbstractString,
-    ::WriteTrunc,
-    bufsize::Integer = DEFAULT_BUFSIZE,
-)
+function Base.open(file::AbstractString,
+                   ::WriteTrunc,
+                   bufsize::Integer=DEFAULT_BUFSIZE)
     buf = Vector{UInt8}(undef, bufsize)
-    rf = Filesystem.open(file, JL_O_CREAT | JL_O_TRUNC | JL_O_WRONLY, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH)
+    rf = Filesystem.open(file, JL_O_CREAT | JL_O_TRUNC | JL_O_WRONLY,
+                         S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH)
     return BufferedWriteFile(rf, buf)
 end
 
@@ -350,7 +387,7 @@ function Base.close(f::BufferedWriteFile)
 end
 
 function Base.unsafe_write(f::BufferedWriteFile, p::Ptr{UInt8}, nb::UInt)::UInt
-    freespace::UInt = (length(f.buf) - f.bufpos)
+    freespace = (length(f.buf) - f.bufpos)
     @assert freespace > 0
     if freespace > nb
         GC.@preserve f begin
@@ -368,6 +405,21 @@ function Base.unsafe_write(f::BufferedWriteFile, p::Ptr{UInt8}, nb::UInt)::UInt
     else
         error("This should never happen!")
     end
+end
+
+function Base.write(s::BufferedWriteFile, u::UInt8)
+    freespace = (length(s.buf) - s.bufpos)
+    if freespace >= 2
+        s.bufpos += 1
+        @inbounds s.buf[s.bufpos] = u
+    elseif freespace == 1
+        s.bufpos += 1
+        @inbounds s.buf[s.bufpos] = u
+        flush(s)
+    else
+        error("This should never happen!")
+    end
+    return 1
 end
 
 end # module
